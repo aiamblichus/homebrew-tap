@@ -7,14 +7,22 @@ class NextPlaid < Formula
   license "Apache-2.0"
 
   depends_on "rust" => :build
+  depends_on "onnxruntime"
 
   def install
     # accelerate = Apple Accelerate framework (BLAS) for matrix ops on macOS
     # model      = ONNX Runtime encoder support (enables /encode + *_with_encoding endpoints)
-    # coreml is NOT a valid feature (only: accelerate, openblas, model, cuda)
-    # std_cargo_args adds --locked (reproducible build) and installs directly into prefix/bin
     system "cargo", "install", *std_cargo_args(path: "next-plaid-api"),
            "--features", "accelerate,model"
+
+    # ort uses load-dynamic: ORT_DYLIB_PATH is resolved at runtime, not baked in at compile time.
+    # Move the real binary to libexec and wrap it so the dylib path is always set correctly.
+    libexec.install bin/"next-plaid-api"
+    (bin/"next-plaid-api").write <<~EOS
+      #!/bin/bash
+      export ORT_DYLIB_PATH="#{Formula["onnxruntime"].opt_lib}/libonnxruntime.dylib"
+      exec "#{libexec}/next-plaid-api" "$@"
+    EOS
   end
 
   def caveats
@@ -24,7 +32,7 @@ class NextPlaid < Formula
         # Embeddings-only (pass pre-computed vectors; no model required)
         next-plaid-api -p 8080 -d ~/.local/share/next-plaid
 
-        # With built-in text encoding (downloads a HuggingFace ColBERT ONNX model)
+        # With built-in text encoding (HuggingFace ColBERT ONNX model)
         next-plaid-api -p 8080 -d ~/.local/share/next-plaid \\
           --model lightonai/answerai-colbert-small-v1-onnx --int8
 
